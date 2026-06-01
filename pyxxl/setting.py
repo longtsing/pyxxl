@@ -9,6 +9,9 @@ from pyxxl.log import executor_logger, setting_logger
 from pyxxl.utils import get_network_ip, setup_logging
 
 
+ExecutorPoolType = Literal["thread", "process"]
+
+
 @dataclass
 class ExecutorConfig:
     """
@@ -59,7 +62,23 @@ class ExecutorConfig:
     """
 
     max_workers: int = 30
-    """执行器线程池（执行同步任务时使用）. Default: 30"""
+    """执行器线程池或进程池大小（执行同步任务时使用）. Default: 30"""
+    executor_pool_type: ExecutorPoolType = "thread"
+    """
+    执行器池类型，可选值: "thread"（线程池）或 "process"（进程池）.
+    
+    使用进程池的优势：
+    - 同步任务不会阻塞事件循环
+    - 能够利用多核CPU并行计算
+    - 进程间隔离，一个任务崩溃不会影响其他任务
+    
+    使用进程池的限制：
+    - 任务函数必须是可序列化的（不能使用lambda、闭包等）
+    - 不能使用共享的全局状态
+    - 进程间通信开销较大
+    
+    Default: "thread"
+    """
     task_timeout: int = 60 * 10
     """任务的默认超时时间,如果调度器传了以参数executorTimeout为准. Default: 60 * 10"""
     task_queue_length: int = 30

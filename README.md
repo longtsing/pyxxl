@@ -26,6 +26,7 @@
 * 所有阻塞策略的支持
 * 异步支持（推荐）
 * job-admin上查看日志
+* **进程池模式**（v0.4.2新增）：同步任务在独立进程中执行，不会阻塞事件循环
 
 ## 适配的XXL-JOB版本
 
@@ -114,6 +115,47 @@ def sync_loop_demo2():
     return "ok"
 
 ```
+
+## 进程池模式（v0.4.2新增）
+
+对于长时间运行的同步任务（如2-3小时），建议使用进程池模式。进程池模式下，同步任务会在独立进程中执行，不会阻塞事件循环，解决执行器离线的问题。
+
+```python
+from pyxxl import ExecutorConfig, PyxxlRunner
+
+# 使用进程池模式
+config = ExecutorConfig(
+    xxl_admin_baseurl="http://localhost:8080/xxl-job-admin/api/",
+    executor_app_name="xxl-job-executor-sample",
+    executor_pool_type="process",  # 关键配置
+    max_workers=10,  # 进程池大小，建议设置为CPU核心数
+)
+
+app = PyxxlRunner(config)
+
+@app.register(name="my_long_task")
+def my_long_task():
+    # 同步任务会在独立进程中执行，不会阻塞事件循环
+    import time
+    time.sleep(3600)
+    return "完成"
+```
+
+### 线程池 vs 进程池
+
+| 特性 | 线程池 (thread) | 进程池 (process) |
+|------|----------------|-----------------|
+| 事件循环阻塞 | 会阻塞 | **不会阻塞** |
+| CPU 利用率 | 受 GIL 限制 | **可利用多核** |
+| 内存隔离 | 共享内存 | **进程隔离** |
+| 心跳任务 | 可能受影响 | **正常运行** |
+
+### 注意事项
+
+- 任务函数必须是可序列化的（不能使用lambda、闭包等）
+- 不能使用共享的全局状态（进程间内存隔离）
+- 不能使用 `g.logger`（上下文变量在进程间不共享）
+- 进程间通信开销较大，适合长时间运行的任务
 
 ## 其他
 

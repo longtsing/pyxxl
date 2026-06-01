@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Any, AsyncContextManager, Optional
 
@@ -8,7 +9,7 @@ from pyxxl.types import LogRequest, LogResponse
 
 MAX_LOG_TAIL_LINES = 1000
 TASK_FORMAT = (
-    "%(asctime)s.%(msecs)03d [%(threadName)s] [%(logId)s] "
+    "%(asctime)s.%(msecs)03d [%(process)d:%(threadName)s] [%(logId)s] "
     "%(levelname)s %(pathname)s(%(funcName)s:%(lineno)d) - %(message)s"
 )
 TASKDATE_FORMAT = "%Y-%m-%d %H:%M:%S"

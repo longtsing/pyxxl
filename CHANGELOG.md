@@ -1,3 +1,16 @@
+### 0.4.2
+* 新增配置 **executor_pool_type**, 支持进程池模式执行同步任务
+  - 可选值: "thread"（线程池，默认）、"process"（进程池）
+  - 进程池模式下同步任务不会阻塞事件循环，解决长时间运行任务导致执行器离线的问题
+  - 支持多核CPU并行计算，进程间隔离
+* 新增进程池模式示例文件 `example/process_pool_app.py`
+* 新增进程池模式单元测试 `tests/test_process_pool.py`
+* 优化 `get_network_ip()` 函数，支持macOS系统获取真实IP地址
+* 优化 `DiskLog.get_logs()` 方法，使用异步迭代器提高性能
+* 优化日志格式，添加进程ID显示，便于进程池模式调试
+* 优化 `RedisLog.read_task_logs()` 方法，使用 `asyncio.to_thread` 避免阻塞事件循环
+* 修复 `prometheus.py` 中的 `thread_pool` 引用，支持进程池模式监控
+
 ### 0.4.1
 * 修复配置中host和port的优先级 #68
 

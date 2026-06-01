@@ -15,12 +15,24 @@ DEFAULT_BACKUP_FILE_COUNT = 5
 
 
 def get_network_ip() -> str:
-    """获取本机地址,会获取首个网络地址"""
-    if platform.system() == "Darwin":
-        return "127.0.0.1"  # todo
-    else:
-        _, _, ipaddrlist = socket.gethostbyname_ex(socket.gethostname())
-    return ipaddrlist[0]
+    """获取本机地址,会获取首个非环回网络地址"""
+    try:
+        if platform.system() == "Darwin":
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+            finally:
+                s.close()
+            return ip
+        else:
+            _, _, ipaddrlist = socket.gethostbyname_ex(socket.gethostname())
+            for ip in ipaddrlist:
+                if not ip.startswith("127."):
+                    return ip
+            return ipaddrlist[0] if ipaddrlist else "127.0.0.1"
+    except Exception:
+        return "127.0.0.1"
 
 
 def setup_logging(

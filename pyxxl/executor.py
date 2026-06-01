@@ -6,9 +6,9 @@ import threading
 import time
 import warnings
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, MutableSet, Optional
+from typing import Any, Callable, Dict, List, MutableSet, Optional, Union
 
 from pyxxl import error
 from pyxxl.ctx import g
@@ -33,6 +33,8 @@ def spawn_task(task: asyncio.Task) -> None:
 class HandlerInfo:
     handler: Callable
     is_async: bool = False
+    use_process: bool = False
+    pool: Optional[Union[ThreadPoolExecutor, ProcessPoolExecutor]] = None
 
     def __str__(self) -> str:
         return "<HandlerInfo {}>".format(self.handler.__name__)
@@ -43,6 +45,19 @@ class HandlerInfo:
     async def start(self, timeout: int) -> Any:
         if self.is_async:
             return await asyncio.wait_for(self.handler(), timeout=timeout)
+        
+        # 进程池执行模式
+        if self.use_process and self.pool:
+            loop = asyncio.get_event_loop()
+            try:
+                return await asyncio.wait_for(
+                    loop.run_in_executor(self.pool, self.handler),
+                    timeout=timeout
+                )
+            except (asyncio.exceptions.TimeoutError, asyncio.CancelledError) as e:
+                raise e
+        
+        # 线程池执行模式（原有逻辑）
         # https://stackoverflow.com/questions/71416383/python-asyncio-cancelling-a-to-thread-task-wont-stop-the-thread
         # 由于线程无法直接取消，这里发送一个event，供开发者自己接收信号来判断是否需要取消
         event = threading.Event()
@@ -69,9 +84,16 @@ class XXLTask:
 
 
 class JobHandler:
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        use_process: bool = False,
+        pool: Optional[Union[ThreadPoolExecutor, ProcessPoolExecutor]] = None
+    ) -> None:
         self._handlers: Dict[str, HandlerInfo] = {}
         self.logger = logger or executor_logger
+        self.use_process = use_process
+        self.pool = pool
 
     def register(
         self, *args: Any, name: Optional[str] = None, replace: bool = False
@@ -82,7 +104,7 @@ class JobHandler:
             handler_name = name or func.__name__
             if handler_name in self._handlers and replace is False:
                 raise error.JobRegisterError("handler %s already registered." % handler_name)
-            handler = HandlerInfo(handler=func)
+            handler = HandlerInfo(handler=func, use_process=self.use_process, pool=self.pool)
             if not handler.is_async:
                 warnings.warn(
                     "Using the sync method will unknown blocking exception, consider using async method.",
@@ -130,21 +152,36 @@ class Executor:
         self.xxl_client = xxl_client
         self.config = config
 
-        self.handler: JobHandler = handler or JobHandler()
         self.loop = loop or asyncio.get_event_loop()
         self.tasks: Dict[int, XXLTask] = {}
         self.queue: Dict[int, asyncio.Queue[RunData]] = defaultdict(
             lambda: asyncio.Queue(maxsize=self.config.task_queue_length)
         )
         self.lock = asyncio.Lock()
-        self.thread_pool = ThreadPoolExecutor(
-            max_workers=self.config.max_workers,
-            thread_name_prefix="pyxxl_pool",
+        self.pool: Union[ThreadPoolExecutor, ProcessPoolExecutor]
+        if self.config.executor_pool_type == "process":
+            self.pool = ProcessPoolExecutor(
+                max_workers=self.config.max_workers,
+            )
+            self.executor_logger.info("Using ProcessPoolExecutor with max_workers=%d", self.config.max_workers)
+        else:
+            self.pool = ThreadPoolExecutor(
+                max_workers=self.config.max_workers,
+                thread_name_prefix="pyxxl_pool",
+            )
+            self.executor_logger.info("Using ThreadPoolExecutor with max_workers=%d", self.config.max_workers)
+
+        self.handler: JobHandler = handler or JobHandler(
+            logger=config.executor_logger,
+            use_process=(config.executor_pool_type == "process"),
+            pool=self.pool
         )
+
         self.logger_factory = logger_factory or DiskLog(self.config.log_local_dir)
         self.successed_callback = successed_callback or (lambda: 1)
         self.failed_callback = failed_callback or (lambda x: 1)
-        self.loop.set_default_executor(self.thread_pool)
+        if self.config.executor_pool_type == "thread":
+            self.loop.set_default_executor(self.pool)
 
     @property
     def executor_logger(self) -> logging.Logger:

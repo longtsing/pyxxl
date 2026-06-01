@@ -69,7 +69,10 @@ class PyxxlRunner:
             handler (JobHandler, optional): 执行器支持的job,没有预先定义的job名称也会执行失败
         """
 
-        self.handler = handler or executor.JobHandler(logger=config.executor_logger)
+        self.handler = handler or executor.JobHandler(
+            logger=config.executor_logger,
+            use_process=(config.executor_pool_type == "process")
+        )
         self.config = config
         self.log_level = logging.DEBUG if self.config.debug else logging.INFO
 

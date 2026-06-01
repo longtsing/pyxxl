@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -92,7 +93,9 @@ class RedisLog(LogBase):
 
     async def read_task_logs(self, log_id: int, *, key: Optional[str] = None) -> str:
         key = key or self.key(log_id)
-        # todo: use async
+        return await asyncio.to_thread(self._read_logs_sync, key)
+
+    def _read_logs_sync(self, key: str) -> str:
         return "".join(i.decode() for i in self.rclient.lrange(key, 0, -1))
 
     async def get_logs(self, request: LogRequest, *, key: Optional[str] = None) -> LogResponse:

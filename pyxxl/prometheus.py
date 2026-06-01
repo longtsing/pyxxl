@@ -1,7 +1,7 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import Any, Union
 
 from aiohttp import web
 from prometheus_client import Counter, Gauge, Info
@@ -20,7 +20,7 @@ ASYNCIO_TASKS_TOTAL = Gauge("asyncio_tasks_total", "ASYNCIO_TASKS_TOTAL")
 
 RUNNING_TASK_INFO = Info("running_task", "running task info", ["pk"])
 QUEUE_TASKS_INFO = Info("queue_task", "queue task info", ["pk"])
-THREAD_POOL_INFO = Info("executor_thread_pool", "executor_thread_pool")
+POOL_INFO = Info("executor_pool", "executor_pool")
 
 routes = web.RouteTableDef()
 
@@ -39,12 +39,14 @@ def as_str_dict(obj: Any) -> dict:
     return {k: str(v) for k, v in obj.items()}
 
 
-def _get_thread_pool_info(pool: ThreadPoolExecutor) -> dict:
+def _get_pool_info(pool: Union[ThreadPoolExecutor, ProcessPoolExecutor]) -> dict:
     data = {}
-    data["wait_qsize"] = str(pool._work_queue.qsize())
-    data["current_threads"] = str(len(pool._threads))
+    data["pool_type"] = type(pool).__name__
     data["max_workers"] = str(pool._max_workers)
-    data["idle_threads"] = str(pool._idle_semaphore._value)  # type: ignore[attr-defined]
+    if isinstance(pool, ThreadPoolExecutor):
+        data["wait_qsize"] = str(pool._work_queue.qsize())
+        data["current_threads"] = str(len(pool._threads))
+        data["idle_threads"] = str(pool._idle_semaphore._value)  # type: ignore[attr-defined]
     return data
 
 
@@ -64,11 +66,10 @@ async def metrics(request: web.Request) -> web.Response:
     for kk, queue in executor.queue.items():
         QUEUE_TASKS.labels(kk).set(queue.qsize())
         QUEUE_TASKS_INFO.labels(kk).info({"detail": str(queue)})
-    # thread pool
-    THREAD_POOL_INFO.info(_get_thread_pool_info(executor.thread_pool))
+    # pool info
+    POOL_INFO.info(_get_pool_info(executor.pool))
 
     params = request.query
-    # todo
     _, headers, output = _bake_output(REGISTRY, "", "", params, True)
     return web.Response(body=output, headers=headers)
 

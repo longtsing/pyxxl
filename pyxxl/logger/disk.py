@@ -53,21 +53,26 @@ class DiskLog(LogBase):
         return logger
 
     async def get_logs(self, request: LogRequest, *, key: Optional[str] = None) -> LogResponse:
-        # todo: 优化获取中间行的逻辑，缓存之前每行日志的大小然后直接seek
         logs = ""
         to_line_num = request["fromLineNum"]  # start with 1
         is_end = False
         key = key or self.key(request["logId"])
         try:
             async with aiofiles.open(key, mode="r") as f:
-                for i in range(1, request["fromLineNum"] + self.log_tail_lines):
-                    log = await f.readline()
-                    if log == "":
-                        is_end = True
+                current_line = 0
+                target_start = request["fromLineNum"]
+                target_end = target_start + self.log_tail_lines
+
+                async for line in f:
+                    current_line += 1
+                    if current_line < target_start:
+                        continue
+                    if current_line >= target_end:
                         break
-                    elif i >= request["fromLineNum"]:
-                        to_line_num = i
-                        logs += log
+                    to_line_num = current_line
+                    logs += line
+                else:
+                    is_end = True
         except FileNotFoundError as e:
             self.executor_logger.warning(str(e), exc_info=True)
             logs = "No such logid logs."
